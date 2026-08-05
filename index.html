@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waste Ops — Target vs Achievement</title>
+<meta name="description" content="Live target vs achievement dashboard for daily waste processing across zones.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+
+<style>
+/* ============================= TOKENS (light, field-report console) ============================= */
+:root{
+  --bg:#F4F6F1;
+  --surface:#FFFFFF;
+  --surface-2:#EEF2EA;
+  --border:#DEE5D9;
+  --border-soft:#E8EDE4;
+  --ink:#16241C;
+  --ink-dim:#5E7267;
+  --ink-faint:#93A79A;
+
+  --teal:#1E7F63;      /* Wet / organics / primary */
+  --teal-soft:#E4F1EB;
+  --amber:#BE7A0C;     /* Dry / recyclables */
+  --coral:#C34A3B;     /* shortfall / alerts */
+  --violet:#6B5FA0;    /* MCC */
+  --blue:#2E6FA8;      /* MRF */
+  --olive:#6F8C3E;     /* Garden & Coconut */
+  --slate:#63756B;     /* Mixed / neutral */
+  --gold:#96721E;      /* DHW */
+  --pink:#A85482;      /* Plastic */
+
+  --font-display:'Space Grotesk', sans-serif;
+  --font-mono:'IBM Plex Mono', monospace;
+  --font-body:'Inter', sans-serif;
+
+  --radius:14px;
+  --radius-sm:8px;
+  --shadow: 0 1px 2px rgba(22,36,28,0.04), 0 1px 12px rgba(22,36,28,0.04);
+}
+
+*{box-sizing:border-box; margin:0; padding:0;}
+html{background:var(--bg);}
+body{
+  background:
+    radial-gradient(1100px 560px at 90% -8%, rgba(30,127,99,0.06), transparent 60%),
+    radial-gradient(900px 480px at -6% 8%, rgba(46,111,168,0.05), transparent 60%),
+    var(--bg);
+  color:var(--ink);
+  font-family:var(--font-body);
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;}
+::selection{background:var(--teal); color:#fff;}
+:focus-visible{outline:2px solid var(--teal); outline-offset:2px;}
+
+::-webkit-scrollbar{height:8px; width:8px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border); border-radius:8px;}
+
+/* ============================= LAYOUT ============================= */
+.wrap{max-width:1400px; margin:0 auto; padding:28px 24px 80px;}
+
+/* -------- header -------- */
+.topbar{
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:24px; flex-wrap:wrap; margin-bottom:26px;
+}
+.brand{display:flex; align-items:center; gap:14px;}
+.brand-mark{
+  width:44px; height:44px; border-radius:11px;
+  background:conic-gradient(from 210deg, var(--teal), var(--blue), var(--amber), var(--teal));
+  display:flex; align-items:center; justify-content:center;
+  flex-shrink:0; box-shadow:var(--shadow);
+}
+.brand-mark span{background:var(--surface); width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:var(--teal); font-size:16px;}
+.brand h1{font-family:var(--font-display); font-size:21px; font-weight:600; letter-spacing:-0.01em;}
+.brand p{font-size:12.5px; color:var(--ink-dim); margin-top:2px; font-family:var(--font-mono); letter-spacing:0.02em;}
+
+.status-cluster{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+.pill{
+  display:flex; align-items:center; gap:7px;
+  background:var(--surface); border:1px solid var(--border);
+  padding:8px 12px; border-radius:100px; font-size:12px; color:var(--ink-dim);
+  font-family:var(--font-mono); box-shadow:var(--shadow);
+}
+.dot{width:7px; height:7px; border-radius:50%; background:var(--ink-faint); flex-shrink:0;}
+.dot.live{background:var(--teal); box-shadow:0 0 0 3px rgba(30,127,99,0.15); animation:pulse 2.2s infinite;}
+.dot.sample{background:var(--amber); box-shadow:0 0 0 3px rgba(190,122,12,0.15);}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(30,127,99,0.15);} 50%{box-shadow:0 0 0 6px rgba(30,127,99,0.05);}}
+
+.btn{
+  background:var(--ink); border:1px solid var(--ink); color:#fff;
+  padding:8px 14px; border-radius:100px; font-size:12.5px; font-family:var(--font-mono);
+  cursor:pointer; display:flex; align-items:center; gap:7px; transition:opacity .15s, transform .1s;
+}
+.btn:hover{opacity:0.85;}
+.btn:active{transform:scale(0.97);}
+.btn svg{width:13px; height:13px;}
+.btn.spinning svg{animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+.banner{
+  display:none; align-items:center; gap:10px;
+  background:#FBF3E4; border:1px solid #EAD3A0;
+  color:#7A5510; padding:11px 16px; border-radius:var(--radius-sm);
+  font-size:12.5px; margin-bottom:22px; font-family:var(--font-mono);
+}
+.banner.show{display:flex;}
+.banner code{background:rgba(0,0,0,0.06); padding:1px 5px; border-radius:4px;}
+
+/* -------- filters -------- */
+.filters{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin-bottom:26px; padding:14px 16px;
+  background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius);
+  box-shadow:var(--shadow);
+}
+.filters .group{display:flex; align-items:center; gap:6px;}
+.filters label{font-size:11px; color:var(--ink-faint); font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.05em; margin-right:2px;}
+select{
+  background:var(--surface-2); color:var(--ink); border:1px solid var(--border);
+  padding:7px 10px; border-radius:8px; font-family:var(--font-mono); font-size:12.5px;
+  cursor:pointer;
+}
+.seg{display:flex; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; overflow:hidden;}
+.seg button{
+  background:transparent; border:none; color:var(--ink-dim); font-family:var(--font-mono);
+  font-size:12px; padding:7px 12px; cursor:pointer; transition:background .15s,color .15s;
+  border-right:1px solid var(--border);
+}
+.seg button:last-child{border-right:none;}
+.seg button.active{background:var(--teal); color:#fff; font-weight:600;}
+.spacer{flex:1;}
+.range-note{font-size:11.5px; color:var(--ink-faint); font-family:var(--font-mono);}
+
+/* -------- section headers -------- */
+.section-head{display:flex; align-items:baseline; justify-content:space-between; margin:38px 0 16px;}
+.section-head h2{font-family:var(--font-display); font-size:16px; font-weight:600;}
+.section-head .eyebrow{font-family:var(--font-mono); font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:3px;}
+.section-head .sub{font-size:12px; color:var(--ink-faint); font-family:var(--font-mono);}
+
+/* -------- KPI grid -------- */
+.kpi-grid{display:grid; grid-template-columns:repeat(5,1fr); gap:12px;}
+@media (max-width:1100px){.kpi-grid{grid-template-columns:repeat(3,1fr);}}
+@media (max-width:640px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+.kpi{
+  background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius);
+  padding:16px 16px 14px; position:relative; overflow:hidden; box-shadow:var(--shadow);
+}
+.kpi::before{content:''; position:absolute; top:0; left:0; width:100%; height:3px; background:var(--kc,var(--teal));}
+.kpi .label{font-size:11px; color:var(--ink-faint); font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.05em;}
+.kpi .value{font-family:var(--font-display); font-size:27px; font-weight:600; margin-top:8px; letter-spacing:-0.01em;}
+.kpi .value small{font-size:14px; color:var(--ink-dim); font-weight:500;}
+.kpi .delta{font-family:var(--font-mono); font-size:11.5px; margin-top:6px; color:var(--ink-dim);}
+.kpi .delta.up{color:var(--teal);}
+.kpi .delta.down{color:var(--coral);}
+
+/* -------- gauges -------- */
+.gauge-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px;}
+.gauge-card{
+  background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius);
+  padding:16px; display:flex; flex-direction:column; align-items:center; gap:8px;
+  transition:border-color .15s, transform .1s; box-shadow:var(--shadow);
+}
+.gauge-card:hover{border-color:var(--teal); transform:translateY(-1px);}
+.gauge-card .zlabel{font-family:var(--font-mono); font-size:12px; color:var(--ink-dim); letter-spacing:0.03em;}
+.gauge-svg{width:104px; height:104px;}
+.gauge-svg text{font-family:var(--font-display); font-weight:600;}
+.gauge-card .ztonnage{font-family:var(--font-mono); font-size:11px; color:var(--ink-faint);}
+
+/* -------- panels / cards -------- */
+.panel{
+  background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius);
+  padding:20px; box-shadow:var(--shadow);
+}
+.panel h3{font-family:var(--font-display); font-size:13.5px; font-weight:600; margin-bottom:14px; color:var(--ink);}
+.grid-2{display:grid; grid-template-columns:1.3fr 1fr; gap:14px;}
+.grid-2b{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;}
+@media (max-width:980px){.grid-2, .grid-2b{grid-template-columns:1fr;}}
+.chart-box{position:relative; height:300px;}
+.chart-box.tall{height:360px;}
+.chart-box.short{height:260px;}
+
+.legend-row{display:flex; flex-wrap:wrap; gap:12px; margin-top:14px;}
+.legend-item{display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-dim); font-family:var(--font-mono);}
+.legend-swatch{width:9px; height:9px; border-radius:2px;}
+
+/* -------- table -------- */
+table{width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:12.5px;}
+thead th{
+  text-align:left; color:var(--ink-faint); font-weight:500; font-size:10.5px;
+  text-transform:uppercase; letter-spacing:0.06em; padding:0 12px 10px; border-bottom:1px solid var(--border);
+}
+tbody td{padding:11px 12px; border-bottom:1px solid var(--border-soft); color:var(--ink);}
+tbody tr:last-child td{border-bottom:none;}
+tbody tr:hover{background:var(--surface-2);}
+.zone-chip{
+  display:inline-flex; align-items:center; gap:6px; background:var(--surface-2);
+  border:1px solid var(--border); padding:3px 9px; border-radius:100px; font-size:11.5px;
+}
+.bar-cell{display:flex; align-items:center; gap:8px;}
+.bar-track{flex:1; height:6px; background:var(--surface-2); border-radius:4px; overflow:hidden; min-width:80px;}
+.bar-fill{height:100%; border-radius:4px;}
+.status-tag{padding:2px 8px; border-radius:100px; font-size:10.5px; font-weight:600;}
+.status-tag.good{background:var(--teal-soft); color:var(--teal);}
+.status-tag.warn{background:#FBF0DC; color:var(--amber);}
+.status-tag.bad{background:#FBE6E2; color:var(--coral);}
+.trend-arrow{font-family:var(--font-mono); font-size:12px;}
+
+/* -------- insights -------- */
+.insight-list{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+@media (max-width:820px){.insight-list{grid-template-columns:1fr;}}
+.insight{
+  display:flex; gap:12px; padding:13px 14px; background:var(--surface-2);
+  border-radius:var(--radius-sm); border-left:3px solid var(--ic,var(--teal));
+}
+.insight .glyph{font-family:var(--font-mono); font-size:15px; color:var(--ic,var(--teal)); flex-shrink:0;}
+.insight p{font-size:13px; line-height:1.5; color:var(--ink);}
+.insight p b{color:inherit; font-weight:600;}
+
+/* -------- footer -------- */
+footer{margin-top:56px; padding-top:20px; border-top:1px solid var(--border-soft); display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;}
+footer p{font-size:11.5px; color:var(--ink-faint); font-family:var(--font-mono);}
+footer a{color:var(--ink-dim); text-decoration:underline; text-underline-offset:2px;}
+
+.empty{padding:40px 20px; text-align:center; color:var(--ink-faint); font-family:var(--font-mono); font-size:12.5px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark"><span>♻</span></div>
+      <div>
+        <h1>Waste Ops Dashboard</h1>
+        <p>Target vs. achievement · daily tonnage feed</p>
+      </div>
+    </div>
+    <div class="status-cluster">
+      <div class="pill"><span class="dot" id="statusDot"></span><span id="statusText">Connecting…</span></div>
+      <div class="pill">Last sync <span id="lastSync" style="color:var(--ink)">—</span></div>
+      <button class="btn" id="refreshBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></svg>
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <div class="banner" id="sampleBanner">
+    ⚠ Showing sample data — couldn't reach your Google Sheet. Check that sharing is set to "Anyone with the link", and confirm <code>SHEET_ID</code> / tab <code>gid</code>s in <code>CONFIG</code>.
+  </div>
+
+  <div class="filters">
+    <div class="group">
+      <label>Range</label>
+      <div class="seg" id="rangeSeg">
+        <button data-range="7">7D</button>
+        <button data-range="30" class="active">30D</button>
+        <button data-range="mtd">MTD</button>
+        <button data-range="all">All</button>
+      </div>
+    </div>
+    <div class="group">
+      <label>Zone</label>
+      <select id="zoneSelect"><option value="all">All zones</option></select>
+    </div>
+    <div class="group">
+      <label>Trend metric</label>
+      <select id="metricSelect"><option value="__total__">Total tonnage</option></select>
+    </div>
+    <div class="spacer"></div>
+    <div class="range-note" id="rangeNote"></div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-grid" id="kpiGrid"></div>
+
+  <!-- Gauges -->
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Zone status</div>
+      <h2>Achievement by zone</h2>
+    </div>
+    <div class="sub" id="gaugeSub"></div>
+  </div>
+  <div class="gauge-grid" id="gaugeGrid"></div>
+
+  <!-- Category target vs achievement + trend -->
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Performance</div>
+      <h2>Target vs. achievement</h2>
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="panel">
+      <h3>Target vs. achieved, by category</h3>
+      <div class="chart-box tall"><canvas id="categoryChart"></canvas></div>
+      <div class="legend-row">
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--ink-faint)"></span>Target</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--teal)"></span>Achieved</div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Tonnage trend over time</h3>
+      <div class="chart-box tall"><canvas id="trendChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid-2b">
+    <div class="panel">
+      <h3>Waste stream composition</h3>
+      <div class="chart-box short"><canvas id="compositionChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>Zone comparison, by category</h3>
+      <div class="chart-box short"><canvas id="stackedZoneChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Leaderboard -->
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Ranking</div>
+      <h2>Zone leaderboard</h2>
+    </div>
+  </div>
+  <div class="panel" style="padding:8px 4px;">
+    <div style="overflow-x:auto;">
+      <table id="leaderTable">
+        <thead>
+          <tr><th>Zone</th><th>Total tonnage</th><th>Achievement</th><th>7d trend</th><th>Status</th></tr>
+        </thead>
+        <tbody id="leaderBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Insights -->
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Auto-generated</div>
+      <h2>Insights</h2>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="insight-list" id="insightList"></div>
+  </div>
+
+  <footer>
+    <p>Source: Google Sheets (Daily Feed · Target · Target Logic) — refreshed live on load and every 5 minutes.</p>
+    <p>Built for daily operations reporting · <a href="#" id="topLink">back to top</a></p>
+  </footer>
+
+</div>
+
+<script>
+/* =====================================================================
+   CONFIG — already pointed at your live sheet. Edit if you ever move tabs.
+   ===================================================================== */
+const CONFIG = {
+  SHEET_ID: "1lm-WjBFbY624R_OLPDFNVoDa2Il4L1EPWjYlAHMknuQ",
+  GIDS: {
+    dailyFeed:   "1742664729",
+    target:      "17053497",
+    targetLogic: "1903847191"
+  },
+  AUTO_REFRESH_MINUTES: 5,
+  // Optional friendly names for zones, e.g. {"9":"Zone 9 - Adyar"}
+  ZONE_NAMES: {}
+};
+
+const csvUrl = (gid) =>
+  `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/export?format=csv&gid=${gid}`;
+
+/* ---------------- sample fallback data (used only if the live fetch fails) ---------------- */
+const SAMPLE_FEED = `Date,Zone,Wet,Dry,Mixed,DHW,BIO Gas (Cow Dung),BIO Cng,MRF,Plastic,MCC,Garden,Coconut
+01-Jul-26,9,197.21,188.9,212.92,0,14.755,18.81,0,0.57,0,12.24,11.32
+02-Jul-26,9,236.99,177.67,195.6,0,12.585,17.6,0,3.02,0,11.2,5.65
+03-Jul-26,9,149.64,230.22,199.53,0.98,5.83,30.03,0,1.68,0,7.56,5.77
+04-Jul-26,9,193.76,177.81,215.76,0,14.81,19.44,0,1.22,0,13.59,5.05
+05-Jul-26,9,204.09,195.7,192.05,0,19.678,18.98,0,1.46,0,6.57,8.81
+01-Jul-26,10,150.2,140.1,90.4,0,10.2,15.1,0,2.1,0,9.4,3.2
+02-Jul-26,10,162.4,133.8,88.7,0,11.4,14.8,0,2.4,0,8.9,3.6
+03-Jul-26,10,140.9,151.2,95.3,0.4,9.8,16.2,0,1.9,0,7.7,3.1
+01-Jul-26,11,88.4,79.2,60.1,0,7.6,10.2,0,1.4,0,4.4,2.1
+02-Jul-26,11,92.1,84.6,58.7,0,8.1,9.8,0,1.6,0,5.1,2.4
+01-Jul-26,12,45.1,40.2,30.6,0,4.1,5.2,0,1.0,0,3.1,1.2
+02-Jul-26,12,48.3,42.8,29.1,0,4.6,4.9,0,1.1,0,2.8,1.4
+01-Jul-26,13,210.4,198.6,150.2,0,18.2,20.4,0,3.1,0,13.6,6.2
+02-Jul-26,13,225.1,182.3,142.7,0,19.6,19.1,0,3.4,0,12.1,5.9
+01-Jul-26,14,120.5,110.4,80.2,0,10.4,11.6,0,2.0,0,6.4,2.9
+02-Jul-26,14,128.7,102.6,77.9,0,11.2,10.8,0,2.2,0,5.9,3.1
+01-Jul-26,15,95.3,88.6,60.4,0,9.1,14.6,3.8,1.9,3.5,5.4,2.1
+02-Jul-26,15,101.2,82.4,58.1,0,9.8,13.9,4.1,2.1,4.0,4.9,2.4`;
+
+const SAMPLE_TARGET = `Zone,Type,Target
+9,BIO Gas & CNG,30
+10,BIO Gas & CNG,27
+11,BIO Gas & CNG,21
+12,BIO Gas & CNG,13
+13,BIO Gas & CNG,32
+14,BIO Gas & CNG,22
+15,BIO Gas & CNG,23.95
+9,DHW,0
+10,DHW,0
+11,DHW,0
+12,DHW,0
+13,DHW,0
+14,DHW,0
+15,DHW,0
+9,Dry,0
+10,Dry,0
+11,Dry,0
+12,Dry,0
+13,Dry,0
+14,Dry,0
+15,Dry,0
+9,Garden and Coconut,15
+10,Garden and Coconut,15
+11,Garden and Coconut,10
+12,Garden and Coconut,10
+13,Garden and Coconut,15
+14,Garden and Coconut,10
+15,Garden and Coconut,10
+9,MCC,0
+10,MCC,0
+11,MCC,0
+12,MCC,0
+13,MCC,0
+14,MCC,0
+15,MCC,3.85
+9,Mixed,0
+10,Mixed,0
+11,Mixed,0
+12,Mixed,0
+13,Mixed,0
+14,Mixed,0
+15,Mixed,0
+9,MRF,0
+10,MRF,0
+11,MRF,0
+12,MRF,0
+13,MRF,0
+14,MRF,0
+15,MRF,0
+9,Plastic,4
+10,Plastic,4
+11,Plastic,3
+12,Plastic,3
+13,Plastic,4
+14,Plastic,3
+15,Plastic,3
+9,Wet,0
+10,Wet,0
+11,Wet,0
+12,Wet,0
+13,Wet,0
+14,Wet,0
+15,Wet,0`;
+
+const SAMPLE_LOGIC = `Target,Data
+Wet,Wet
+Dry,Dry
+Mixed,Mixed
+DHW,DHW
+BIO Gas & CNG,BIO Gas (Cow Dung)
+BIO Gas & CNG,BIO Cng
+MRF,MRF
+Plastic,Plastic
+MCC,MCC
+Garden and Coconut,Garden
+Garden and Coconut,Coconut`;
+
+/* ---------------- category color map ---------------- */
+const CAT_COLOR = {
+  "Wet": "--teal", "Dry": "--amber", "Mixed": "--slate", "DHW": "--gold",
+  "BIO Gas & CNG": "--teal", "MRF": "--blue", "Plastic": "--pink",
+  "MCC": "--violet", "Garden and Coconut": "--olive"
+};
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const colorFor = (cat) => cssVar(CAT_COLOR[cat] || "--slate");
+
+/* ---------------- date helpers ---------------- */
+const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+function parseSheetDate(str){
+  if(!str) return null;
+  str = String(str).trim();
+  let m = str.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+  if(m){
+    let yr = parseInt(m[3],10); if(yr < 100) yr += 2000;
+    let mo = MONTHS[m[2].toLowerCase().slice(0,3)];
+    if(mo===undefined) return null;
+    return new Date(yr, mo, parseInt(m[1],10));
+  }
+  let d = new Date(str);
+  return isNaN(d) ? null : d;
+}
+const fmtDate = (d) => d.toLocaleDateString('en-GB', {day:'2-digit', month:'short'});
+const dayMs = 86400000;
+function daysBetweenInclusive(a,b){ return Math.round((b-a)/dayMs) + 1; }
+
+/* ---------------- app state ---------------- */
+let STATE = {
+  feed: [], target: [], mapping: [],
+  zones: [], categories: [],
+  rawToCat: {}, catToRaw: {},
+  usingSample: false
+};
+
+/* ---------------- fetch + parse ---------------- */
+async function fetchCSV(url){
+  const res = await fetch(url, {cache:"no-store"});
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  const text = await res.text();
+  if(text.trim().startsWith("<")) throw new Error("Got HTML, not CSV (sheet likely not public)");
+  return Papa.parse(text, {header:true, dynamicTyping:true, skipEmptyLines:true}).data;
+}
+
+async function loadAll(){
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+  setStatus('connecting');
+  try{
+    const [feed, target, logic] = await Promise.all([
+      fetchCSV(csvUrl(CONFIG.GIDS.dailyFeed)),
+      fetchCSV(csvUrl(CONFIG.GIDS.target)),
+      fetchCSV(csvUrl(CONFIG.GIDS.targetLogic)),
+    ]);
+    STATE.usingSample = false;
+    ingest(feed, target, logic);
+    setStatus('live');
+    document.getElementById('sampleBanner').classList.remove('show');
+  }catch(err){
+    console.warn("Falling back to sample data:", err.message);
+    STATE.usingSample = true;
+    ingest(
+      Papa.parse(SAMPLE_FEED, {header:true, dynamicTyping:true, skipEmptyLines:true}).data,
+      Papa.parse(SAMPLE_TARGET, {header:true, dynamicTyping:true, skipEmptyLines:true}).data,
+      Papa.parse(SAMPLE_LOGIC, {header:true, dynamicTyping:true, skipEmptyLines:true}).data
+    );
+    setStatus('sample');
+    document.getElementById('sampleBanner').classList.add('show');
+  }
+  document.getElementById('lastSync').textContent =
+    new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  btn.classList.remove('spinning');
+  renderAll();
+}
+
+function setStatus(kind){
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  dot.className = 'dot' + (kind==='live' ? ' live' : kind==='sample' ? ' sample' : '');
+  txt.textContent = kind==='live' ? 'Live · connected' : kind==='sample' ? 'Sample data' : 'Connecting…';
+}
+
+function ingest(feedRows, targetRows, logicRows){
+  const feed = feedRows
+    .filter(r => r.Date && r.Zone !== undefined && r.Zone !== null && r.Zone !== "")
+    .map(r => ({ ...r, _date: parseSheetDate(r.Date), _zone: String(r.Zone).trim() }))
+    .filter(r => r._date);
+
+  const target = targetRows
+    .filter(r => r.Zone !== undefined && r.Zone !== null && r.Zone !== "" && r.Type)
+    .map(r => ({ zone: String(r.Zone).trim(), category: String(r.Type).trim(), target: Number(r.Target)||0 }));
+
+  const mapping = logicRows.filter(r => r.Target && r.Data);
+
+  const rawToCat = {}, catToRaw = {};
+  mapping.forEach(r => {
+    const cat = String(r.Target).trim(), raw = String(r.Data).trim();
+    rawToCat[raw] = cat;
+    (catToRaw[cat] = catToRaw[cat] || []).push(raw);
+  });
+
+  const zones = [...new Set(feed.map(r => r._zone))].sort((a,b)=>Number(a)-Number(b));
+  const categories = [...new Set(target.map(r => r.category))];
+
+  STATE = { ...STATE, feed, target, mapping, rawToCat, catToRaw, zones, categories };
+
+  const zoneSel = document.getElementById('zoneSelect');
+  if(zoneSel.dataset.built !== "1"){
+    zones.forEach(z => {
+      const opt = document.createElement('option');
+      opt.value = z; opt.textContent = CONFIG.ZONE_NAMES[z] || `Zone ${z}`;
+      zoneSel.appendChild(opt);
+    });
+    zoneSel.dataset.built = "1";
+  }
+  const metricSel = document.getElementById('metricSelect');
+  if(metricSel.dataset.built !== "1"){
+    categories.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      metricSel.appendChild(opt);
+    });
+    metricSel.dataset.built = "1";
+  }
+}
+
+/* ---------------- filtering / aggregation ---------------- */
+function currentRange(){
+  const preset = document.querySelector('#rangeSeg button.active')?.dataset.range || '30';
+  const dates = STATE.feed.map(r => r._date);
+  if(!dates.length) return {start:new Date(), end:new Date()};
+  const maxDate = new Date(Math.max(...dates));
+  let start;
+  if(preset === '7') start = new Date(maxDate.getTime() - 6*dayMs);
+  else if(preset === '30') start = new Date(maxDate.getTime() - 29*dayMs);
+  else if(preset === 'mtd') start = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
+  else start = new Date(Math.min(...dates));
+  return {start, end: maxDate};
+}
+
+function filteredFeed(range, zone){
+  return STATE.feed.filter(r =>
+    r._date >= range.start && r._date <= range.end &&
+    (zone === 'all' || r._zone === zone)
+  );
+}
+
+function aggregateActual(rows){
+  const out = {};
+  rows.forEach(r => {
+    out[r._zone] = out[r._zone] || {};
+    Object.entries(STATE.rawToCat).forEach(([raw, cat]) => {
+      const v = Number(r[raw]) || 0;
+      out[r._zone][cat] = (out[r._zone][cat] || 0) + v;
+    });
+  });
+  return out;
+}
+
+function targetLookup(zone, cat){
+  const row = STATE.target.find(t => t.zone === zone && t.category === cat);
+  return row ? row.target : 0;
+}
+
+function daysPresent(rows, zone){
+  const ds = new Set(rows.filter(r => zone==='all' || r._zone===zone).map(r => r._date.toDateString()));
+  return ds.size || 1;
+}
+
+function computeSummary(range, zoneFilter){
+  const rows = filteredFeed(range, zoneFilter);
+  const actualByZone = aggregateActual(rows);
+  const zonesInScope = zoneFilter === 'all' ? STATE.zones : [zoneFilter];
+
+  const perZone = zonesInScope.map(z => {
+    const zRows = rows.filter(r => r._zone === z);
+    const days = daysPresent(zRows, z);
+    let actualSum = 0, expectedSum = 0, catBreak = [];
+    STATE.categories.forEach(cat => {
+      const actual = (actualByZone[z] && actualByZone[z][cat]) || 0;
+      const tgtDaily = targetLookup(z, cat);
+      const expected = tgtDaily * days;
+      actualSum += actual;
+      expectedSum += expected;
+      catBreak.push({cat, actual, expected, tgtDaily});
+    });
+    const pct = expectedSum > 0 ? (actualSum/expectedSum*100) : (actualSum>0 ? 100 : 0);
+    return {zone:z, actualSum, expectedSum, pct, catBreak, days};
+  });
+
+  const totalActual = perZone.reduce((s,z)=>s+z.actualSum,0);
+  const totalExpected = perZone.reduce((s,z)=>s+z.expectedSum,0);
+  const overallPct = totalExpected>0 ? (totalActual/totalExpected*100) : 0;
+
+  return {perZone, totalActual, totalExpected, overallPct, rows};
+}
+
+/* ---------------- rendering ---------------- */
+let categoryChart, trendChart, compositionChart, stackedZoneChart;
+
+function renderAll(){
+  const range = currentRange();
+  const zoneFilter = document.getElementById('zoneSelect').value;
+  const summary = computeSummary(range, zoneFilter);
+
+  document.getElementById('rangeNote').textContent =
+    `${fmtDate(range.start)} — ${fmtDate(range.end)} · ${summary.rows.length} records`;
+
+  renderKPIs(summary, range);
+  renderGauges(summary);
+  renderCategoryChart(summary);
+  renderTrendChart(range, zoneFilter);
+  renderCompositionChart(summary);
+  renderStackedZoneChart(range);
+  renderLeaderboard(range, zoneFilter);
+  renderInsights(summary, range, zoneFilter);
+}
+
+function renderKPIs(summary, range){
+  const grid = document.getElementById('kpiGrid');
+  const best = [...summary.perZone].sort((a,b)=>b.pct-a.pct)[0];
+  const worst = [...summary.perZone].sort((a,b)=>a.pct-b.pct)[0];
+  const behindCount = summary.perZone.filter(z => z.expectedSum>0 && z.pct < 90).length;
+
+  const cards = [
+    {label:"Total processed", value: summary.totalActual.toFixed(1), unit:"T", color:"--teal"},
+    {label:"Overall achievement", value: summary.overallPct.toFixed(0)+"%", unit:"", color: summary.overallPct>=100 ? "--teal" : summary.overallPct>=80 ? "--amber" : "--coral"},
+    {label:"Best zone", value: best ? (CONFIG.ZONE_NAMES[best.zone]||"Zone "+best.zone) : "—", unit: best? best.pct.toFixed(0)+"%":"", color:"--teal"},
+    {label:"Needs attention", value: worst ? (CONFIG.ZONE_NAMES[worst.zone]||"Zone "+worst.zone) : "—", unit: worst? worst.pct.toFixed(0)+"%":"", color:"--coral"},
+    {label:"Zones behind target", value: behindCount, unit:"of "+summary.perZone.length, color:"--amber"},
+  ];
+  grid.innerHTML = cards.map(c => `
+    <div class="kpi" style="--kc:${cssVar(c.color)}">
+      <div class="label">${c.label}</div>
+      <div class="value">${c.value}${c.unit ? ` <small>${c.unit}</small>`:''}</div>
+    </div>
+  `).join('');
+}
+
+function pctColor(pct){
+  if(pct >= 100) return cssVar('--teal');
+  if(pct >= 70) return cssVar('--amber');
+  return cssVar('--coral');
+}
+
+function renderGauges(summary){
+  document.getElementById('gaugeSub').textContent = `${summary.perZone.length} zone(s) in view`;
+  const grid = document.getElementById('gaugeGrid');
+  if(!summary.perZone.length){ grid.innerHTML = `<div class="empty">No data in this range.</div>`; return; }
+
+  grid.innerHTML = summary.perZone.map(z => {
+    const pct = Math.max(0, z.pct);
+    const clamped = Math.min(pct, 150);
+    const frac = clamped/150;
+    const r = 42, c = 2*Math.PI*r;
+    const dash = c*frac, gap = c-dash;
+    const col = pctColor(pct);
+    const name = CONFIG.ZONE_NAMES[z.zone] || `Zone ${z.zone}`;
+    return `
+      <div class="gauge-card">
+        <div class="zlabel">${name}</div>
+        <svg class="gauge-svg" viewBox="0 0 104 104">
+          <circle cx="52" cy="52" r="${r}" fill="none" stroke="var(--border)" stroke-width="9"/>
+          <circle cx="52" cy="52" r="${r}" fill="none" stroke="${col}" stroke-width="9"
+            stroke-linecap="round" stroke-dasharray="${dash} ${gap}"
+            transform="rotate(-90 52 52)"/>
+          <text x="52" y="49" text-anchor="middle" font-size="20" fill="var(--ink)">${pct.toFixed(0)}%</text>
+          <text x="52" y="66" text-anchor="middle" font-size="9" fill="var(--ink-faint)" font-family="var(--font-mono)">of target</text>
+        </svg>
+        <div class="ztonnage">${z.actualSum.toFixed(1)} T actual</div>
+      </div>`;
+  }).join('');
+}
+
+function renderCategoryChart(summary){
+  const catTotals = {};
+  STATE.categories.forEach(cat => catTotals[cat] = {actual:0, expected:0});
+  summary.perZone.forEach(z => z.catBreak.forEach(cb => {
+    catTotals[cb.cat].actual += cb.actual;
+    catTotals[cb.cat].expected += cb.expected;
+  }));
+  const cats = STATE.categories.filter(c => catTotals[c].expected > 0 || catTotals[c].actual > 0);
+  const ctx = document.getElementById('categoryChart');
+  const data = {
+    labels: cats,
+    datasets: [
+      {label:'Target', data: cats.map(c=>catTotals[c].expected), backgroundColor: cssVar('--border'), borderRadius:5, barThickness:14},
+      {label:'Achieved', data: cats.map(c=>catTotals[c].actual), backgroundColor: cats.map(colorFor), borderRadius:5, barThickness:14},
+    ]
+  };
+  if(categoryChart) categoryChart.destroy();
+  categoryChart = new Chart(ctx, {
+    type:'bar',
+    data,
+    options:{
+      indexAxis:'y',
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(c)=>`${c.dataset.label}: ${c.raw.toFixed(1)} T`}} },
+      scales:{
+        x:{ grid:{color:'rgba(22,36,28,0.06)'}, ticks:{color:cssVar('--ink-faint'), font:{family:'IBM Plex Mono', size:10}} },
+        y:{ grid:{display:false}, ticks:{color:cssVar('--ink-dim'), font:{family:'IBM Plex Mono', size:11}} }
+      }
+    }
+  });
+}
+
+function renderTrendChart(range, zoneFilter){
+  const metric = document.getElementById('metricSelect').value;
+  const rows = filteredFeed(range, zoneFilter).sort((a,b)=>a._date-b._date);
+  const byDay = {};
+  rows.forEach(r => {
+    const key = r._date.toDateString();
+    byDay[key] = byDay[key] || 0;
+    if(metric === '__total__'){
+      Object.keys(STATE.rawToCat).forEach(raw => byDay[key] += Number(r[raw])||0);
+    } else {
+      (STATE.catToRaw[metric]||[]).forEach(raw => byDay[key] += Number(r[raw])||0);
+    }
+  });
+  const days = Object.keys(byDay).sort((a,b)=> new Date(a)-new Date(b));
+  const ctx = document.getElementById('trendChart');
+  if(trendChart) trendChart.destroy();
+  const lineColor = metric==='__total__' ? cssVar('--teal') : colorFor(metric);
+  trendChart = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels: days.map(d => fmtDate(new Date(d))),
+      datasets:[{
+        label: metric==='__total__' ? 'Total tonnage' : metric,
+        data: days.map(d=>byDay[d]),
+        borderColor: lineColor,
+        backgroundColor: lineColor + '22',
+        fill:true, tension:0.35, pointRadius:2, pointHoverRadius:4, borderWidth:2.2
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>`${c.raw.toFixed(1)} T`}}},
+      scales:{
+        x:{grid:{display:false}, ticks:{color:cssVar('--ink-faint'), font:{family:'IBM Plex Mono', size:10}, maxRotation:0, autoSkip:true, maxTicksLimit:8}},
+        y:{grid:{color:'rgba(22,36,28,0.06)'}, ticks:{color:cssVar('--ink-faint'), font:{family:'IBM Plex Mono', size:10}}}
+      }
+    }
+  });
+}
+
+function renderCompositionChart(summary){
+  const catTotals = {};
+  STATE.categories.forEach(cat => catTotals[cat] = 0);
+  summary.perZone.forEach(z => z.catBreak.forEach(cb => { catTotals[cb.cat] += cb.actual; }));
+  const cats = STATE.categories.filter(c => catTotals[c] > 0);
+  const ctx = document.getElementById('compositionChart');
+  if(compositionChart) compositionChart.destroy();
+  compositionChart = new Chart(ctx, {
+    type:'doughnut',
+    data:{
+      labels: cats,
+      datasets:[{ data: cats.map(c=>catTotals[c]), backgroundColor: cats.map(colorFor), borderColor: cssVar('--surface'), borderWidth:2 }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false, cutout:'62%',
+      plugins:{
+        legend:{ position:'right', labels:{ color:cssVar('--ink-dim'), font:{family:'IBM Plex Mono', size:10.5}, boxWidth:9, boxHeight:9, padding:10 } },
+        tooltip:{ callbacks:{ label:(c)=>`${c.label}: ${c.raw.toFixed(1)} T` } }
+      }
+    }
+  });
+}
+
+function renderStackedZoneChart(range){
+  const summary = computeSummary(range, 'all');
+  const cats = STATE.categories.filter(c => summary.perZone.some(z => (z.catBreak.find(cb=>cb.cat===c)||{}).actual > 0));
+  const zones = summary.perZone.map(z => CONFIG.ZONE_NAMES[z.zone] || `Zone ${z.zone}`);
+  const ctx = document.getElementById('stackedZoneChart');
+  const datasets = cats.map(cat => ({
+    label: cat,
+    data: summary.perZone.map(z => (z.catBreak.find(cb=>cb.cat===cat)||{}).actual || 0),
+    backgroundColor: colorFor(cat),
+    borderRadius:3, stack:'s'
+  }));
+  if(stackedZoneChart) stackedZoneChart.destroy();
+  stackedZoneChart = new Chart(ctx, {
+    type:'bar',
+    data:{ labels: zones, datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{ position:'bottom', labels:{ color:cssVar('--ink-dim'), font:{family:'IBM Plex Mono', size:9.5}, boxWidth:8, boxHeight:8, padding:8 } },
+        tooltip:{ callbacks:{ label:(c)=>`${c.dataset.label}: ${c.raw.toFixed(1)} T` } }
+      },
+      scales:{
+        x:{ stacked:true, grid:{display:false}, ticks:{color:cssVar('--ink-faint'), font:{family:'IBM Plex Mono', size:10}} },
+        y:{ stacked:true, grid:{color:'rgba(22,36,28,0.06)'}, ticks:{color:cssVar('--ink-faint'), font:{family:'IBM Plex Mono', size:10}} }
+      }
+    }
+  });
+}
+
+function renderLeaderboard(range, zoneFilter){
+  const summary = computeSummary(range, 'all');
+  const prevRange = { start: new Date(range.start.getTime() - (daysBetweenInclusive(range.start,range.end))*dayMs), end: new Date(range.start.getTime()-dayMs) };
+  const prevSummary = computeSummary(prevRange, 'all');
+
+  const rows = [...summary.perZone].sort((a,b)=>b.pct-a.pct).map(z => {
+    const prev = prevSummary.perZone.find(p=>p.zone===z.zone);
+    const trend = prev && prev.actualSum>0 ? ((z.actualSum-prev.actualSum)/prev.actualSum*100) : null;
+    const status = z.pct>=100 ? 'good' : z.pct>=70 ? 'warn' : 'bad';
+    const statusLabel = z.pct>=100 ? 'On target' : z.pct>=70 ? 'Watch' : 'Behind';
+    const name = CONFIG.ZONE_NAMES[z.zone] || `Zone ${z.zone}`;
+    return `
+      <tr>
+        <td><span class="zone-chip">${name}</span></td>
+        <td>${z.actualSum.toFixed(1)} T</td>
+        <td>
+          <div class="bar-cell">
+            <span>${z.pct.toFixed(0)}%</span>
+            <div class="bar-track"><div class="bar-fill" style="width:${Math.min(z.pct,100)}%; background:${pctColor(z.pct)}"></div></div>
+          </div>
+        </td>
+        <td class="trend-arrow" style="color:${trend===null?'var(--ink-faint)':trend>=0?'var(--teal)':'var(--coral)'}">
+          ${trend===null ? '—' : (trend>=0?'▲ ':'▼ ')+Math.abs(trend).toFixed(0)+'%'}
+        </td>
+        <td><span class="status-tag ${status}">${statusLabel}</span></td>
+      </tr>`;
+  }).join('');
+  document.getElementById('leaderBody').innerHTML = rows || `<tr><td colspan="5" class="empty">No data.</td></tr>`;
+}
+
+function renderInsights(summary, range, zoneFilter){
+  const list = document.getElementById('insightList');
+  const insights = [];
+
+  const sorted = [...summary.perZone].sort((a,b)=>b.pct-a.pct);
+  const best = sorted[0], worst = sorted[sorted.length-1];
+
+  if(best){
+    const name = CONFIG.ZONE_NAMES[best.zone] || `Zone ${best.zone}`;
+    insights.push({icon:'▲', color:'--teal', html:`<b>${name}</b> is the top performer this period at <b>${best.pct.toFixed(0)}%</b> of its combined target, processing ${best.actualSum.toFixed(1)} T.`});
+  }
+  if(worst && worst.zone !== best?.zone){
+    const name = CONFIG.ZONE_NAMES[worst.zone] || `Zone ${worst.zone}`;
+    insights.push({icon:'▼', color:'--coral', html:`<b>${name}</b> is furthest behind at <b>${worst.pct.toFixed(0)}%</b> of target — worth a closer look.`});
+  }
+
+  const catTotals = {};
+  STATE.categories.forEach(cat => catTotals[cat] = {actual:0, expected:0});
+  summary.perZone.forEach(z => z.catBreak.forEach(cb => {
+    catTotals[cb.cat].actual += cb.actual; catTotals[cb.cat].expected += cb.expected;
+  }));
+  const catPct = Object.entries(catTotals)
+    .filter(([,v])=>v.expected>0)
+    .map(([cat,v])=>({cat, pct: v.actual/v.expected*100}))
+    .sort((a,b)=>a.pct-b.pct);
+  if(catPct.length){
+    const c = catPct[0];
+    insights.push({icon:'◆', color: c.pct<90?'--amber':'--teal', html:`<b>${c.cat}</b> is the category with the widest gap to target across zones, at <b>${c.pct.toFixed(0)}%</b> achievement.`});
+  }
+
+  const byVolume = Object.entries(catTotals).sort((a,b)=>b[1].actual-a[1].actual)[0];
+  if(byVolume){
+    const share = summary.totalActual>0 ? (byVolume[1].actual/summary.totalActual*100) : 0;
+    insights.push({icon:'●', color:'--blue', html:`<b>${byVolume[0]}</b> is the largest waste stream by volume, making up <b>${share.toFixed(0)}%</b> of total tonnage processed.`});
+  }
+
+  const span = daysBetweenInclusive(range.start, range.end);
+  const prevRange = { start: new Date(range.start.getTime()-span*dayMs), end: new Date(range.start.getTime()-dayMs)};
+  const prevSummary = computeSummary(prevRange, zoneFilter);
+  if(prevSummary.totalActual>0){
+    const change = (summary.totalActual-prevSummary.totalActual)/prevSummary.totalActual*100;
+    insights.push({icon: change>=0?'↗':'↘', color: change>=0?'--teal':'--coral',
+      html:`Total tonnage processed is <b>${change>=0?'up':'down'} ${Math.abs(change).toFixed(0)}%</b> versus the previous ${span}-day period.`});
+  }
+
+  const onTargetZones = summary.perZone.filter(z => z.expectedSum>0 && z.pct>=100).length;
+  const totalZonesWithTarget = summary.perZone.filter(z=>z.expectedSum>0).length;
+  if(totalZonesWithTarget){
+    insights.push({icon:'✓', color: onTargetZones===totalZonesWithTarget ? '--teal':'--amber',
+      html:`<b>${onTargetZones} of ${totalZonesWithTarget}</b> zones with an active target met or exceeded it in this period.`});
+  }
+
+  insights.push({icon:'▣', color:'--violet', html:`Overall achievement across ${summary.perZone.length} zone(s) stands at <b>${summary.overallPct.toFixed(0)}%</b> of combined target for ${fmtDate(range.start)}–${fmtDate(range.end)}.`});
+
+  list.innerHTML = insights.map(i => `
+    <div class="insight" style="--ic:${cssVar(i.color)}">
+      <div class="glyph">${i.icon}</div>
+      <p>${i.html}</p>
+    </div>`).join('');
+}
+
+/* ---------------- events ---------------- */
+document.getElementById('refreshBtn').addEventListener('click', () => loadAll());
+document.getElementById('rangeSeg').addEventListener('click', (e) => {
+  const btn = e.target.closest('button'); if(!btn) return;
+  document.querySelectorAll('#rangeSeg button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderAll();
+});
+document.getElementById('zoneSelect').addEventListener('change', renderAll);
+document.getElementById('metricSelect').addEventListener('change', renderAll);
+document.getElementById('topLink').addEventListener('click', (e)=>{ e.preventDefault(); window.scrollTo({top:0, behavior:'smooth'}); });
+
+/* ---------------- boot ---------------- */
+loadAll();
+setInterval(loadAll, (CONFIG.AUTO_REFRESH_MINUTES||5) * 60 * 1000);
+</script>
+</body>
+</html>
