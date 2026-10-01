@@ -1,5 +1,5 @@
 /* ================= CONFIG ================= */
-const API_URL = 'https://script.google.com/macros/s/AKfycbzNcZhj4FXpW-M6oOe2IK2LYsOeyc-r285EHhNEX8rviZ-ZUupK9pHr803DHrQ8cZI/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycby6lscqo0HN2r0tpDeYEP07qrBFmQ2zP9zlBIHPW85_Z4s1et9Jilmz1ZLbjd34ygw/exec';
 const PHOTO_W = 525, PHOTO_H = 675;          // 35:45 ratio (~380 dpi at 35x45 mm)
 const CACHE_KEY = 'sus_emp_cache_v1';
 /* ========================================== */
